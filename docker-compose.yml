@@ -1,0 +1,142 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: docker/app/Dockerfile
+    image: xerex/panel:latest
+    container_name: xerex-app
+    restart: unless-stopped
+    working_dir: /var/www/html
+    volumes:
+      - ./:/var/www/html
+      - xerex_storage:/var/www/html/storage
+      - xerex_certs:/var/www/html/storage/certs
+    networks:
+      - xerex
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      APP_ENV: local
+      APP_DEBUG: "true"
+      APP_URL: http://localhost:8000
+      DB_CONNECTION: pgsql
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_DATABASE: xerex_panel
+      DB_USERNAME: xerex
+      DB_PASSWORD: xerex_secret
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      CACHE_STORE: redis
+      SESSION_DRIVER: database
+      QUEUE_CONNECTION: redis
+    ports:
+      - "8000:8000"
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: xerex-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: xerex
+      POSTGRES_PASSWORD: xerex_secret
+      POSTGRES_DB: xerex_panel
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - xerex
+
+  redis:
+    image: redis:7-alpine
+    container_name: xerex-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - xerex
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: xerex-nginx
+    restart: unless-stopped
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./docker/nginx/conf.d:/etc/nginx/conf.d:ro
+      - xerex_certs:/etc/letsencrypt:ro
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      - xerex
+    depends_on:
+      - app
+
+  powerdns:
+    image: powerdns/pdns-auth-48:latest
+    container_name: xerex-powerdns
+    restart: unless-stopped
+    environment:
+      PDNS_API_KEY: xerex_dns_secret_change_me
+      PDNS_WEBSERVER: "yes"
+      PDNS_WEBSERVER_ADDRESS: 0.0.0.0
+      PDNS_WEBSERVER_PORT: 8081
+      PDNS_WEBSERVER_ALLOW_FROM: 0.0.0.0/0
+      PDNS_GSQLITE_DATABASE: /var/lib/powerdns/pdns.sqlite3
+    volumes:
+      - powerdns_data:/var/lib/powerdns
+    ports:
+      - "5300:53"
+      - "8081:8081"
+    networks:
+      - xerex
+
+  horizon:
+    build:
+      context: .
+      dockerfile: docker/app/Dockerfile
+    container_name: xerex-horizon
+    restart: unless-stopped
+    working_dir: /var/www/html
+    command: php artisan horizon
+    volumes:
+      - ./:/var/www/html
+      - xerex_storage:/var/www/html/storage
+    networks:
+      - xerex
+    depends_on:
+      - app
+      - redis
+    environment:
+      DB_HOST: postgres
+      REDIS_HOST: redis
+
+  vite:
+    image: node:20-alpine
+    container_name: xerex-vite
+    working_dir: /var/www/html
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    volumes:
+      - ./:/var/www/html
+      - vite_cache:/root/.npm
+    ports:
+      - "5173:5173"
+    networks:
+      - xerex
+
+networks:
+  xerex:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  powerdns_data:
+  xerex_storage:
+  xerex_certs:
+  vite_cache:

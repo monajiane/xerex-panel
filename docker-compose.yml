@@ -31,6 +31,9 @@ services:
       CACHE_STORE: redis
       SESSION_DRIVER: database
       QUEUE_CONNECTION: redis
+      BROADCAST_CONNECTION: reverb
+      REVERB_HOST: 0.0.0.0
+      REVERB_PORT: 8080
     ports:
       - "8000:8000"
 
@@ -115,6 +118,31 @@ services:
     environment:
       DB_HOST: postgres
       REDIS_HOST: redis
+
+  reverb:
+    build:
+      context: .
+      dockerfile: docker/app/Dockerfile
+    container_name: xerex-reverb
+    restart: unless-stopped
+    working_dir: /var/www/html
+    command: php artisan reverb:start --host=0.0.0.0 --port=8080
+    volumes:
+      - ./:/var/www/html
+      - xerex_storage:/var/www/html/storage
+    networks:
+      - xerex
+    depends_on:
+      - app
+      - redis
+    environment:
+      DB_HOST: postgres
+      REDIS_HOST: redis
+      BROADCAST_CONNECTION: reverb
+      REVERB_HOST: 0.0.0.0
+      REVERB_PORT: "8080"
+    ports:
+      - "8080:8080"
 
   vite:
     image: node:20-alpine

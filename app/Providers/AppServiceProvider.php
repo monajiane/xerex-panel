@@ -2,8 +2,15 @@
 
 namespace App\Providers;
 
+use App\Models\Domain;
+use App\Models\EdgeServer;
+use App\Models\OriginServer;
 use App\Models\ProxyRule;
+use App\Models\SslCertificate;
+use App\Observers\EdgeServerObserver;
+use App\Observers\OriginServerObserver;
 use App\Observers\ProxyRuleObserver;
+use App\Observers\SslCertificateObserver;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
@@ -28,5 +35,8 @@ class AppServiceProvider extends ServiceProvider
 
         // Observers
         ProxyRule::observe(ProxyRuleObserver::class);
+        OriginServer::observe(OriginServerObserver::class);
+        EdgeServer::observe(EdgeServerObserver::class);
+        SslCertificate::observe(SslCertificateObserver::class);
     }
 }

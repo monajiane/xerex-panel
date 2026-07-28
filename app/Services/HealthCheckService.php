@@ -4,9 +4,11 @@ namespace App\Services;
 
 use App\Events\FailoverTriggered;
 use App\Events\OriginHealthChanged;
+use App\Jobs\SyncEdgeConfig;
 use App\Models\EdgeServer;
 use App\Models\HealthCheck;
 use App\Models\OriginServer;
+use App\Models\ProxyRule;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -400,6 +402,19 @@ class HealthCheckService
         if ($shouldDisable) {
             Log::warning("Origin {$origin->name} disabled after {$newFailures} consecutive failures");
             FailoverTriggered::dispatch($origin, 'disabled');
+
+            // If this origin belongs to a failover group, try to promote a
+            // healthy sibling so the upstream list updates immediately.
+            if ($origin->failover_group) {
+                try {
+                    app(FailoverGroupService::class)->promoteReplacement($origin);
+                } catch (\Throwable $e) {
+                    Log::error("FailoverGroup promotion failed: {$e->getMessage()}", [
+                        'origin_id' => $origin->id,
+                        'group'     => $origin->failover_group,
+                    ]);
+                }
+            }
         }
     }
 

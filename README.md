@@ -30,7 +30,7 @@ a single dashboard.
 
 ## ✨ Features
 
-### Phase 1 (current)
+### Phase 1 — Foundation
 - ✅ Laravel 12 + PHP 8.3 backend with REST API
 - ✅ Vue 3 + TailwindCSS responsive dashboard
 - ✅ PostgreSQL / MariaDB + Redis
@@ -39,19 +39,25 @@ a single dashboard.
 - ✅ Edge Agent API (`/api/agent/*`) with bearer token auth
 - ✅ Nginx config generator (HTTP, WebSocket, gRPC, TCP, SSE, Redirect)
 - ✅ Auto-sync proxy rule changes to edges via queued jobs
-- ✅ Health checks (HTTP probes, latency tracking)
 - ✅ Audit log for all sensitive actions
 - ✅ Docker Compose development environment
 
-### Coming (Phase 2+)
+### Phase 2 — Operations
+- ✅ Health checks (HTTP probes, latency tracking, consecutive success/failure thresholds)
+- ✅ Failover groups — group origins for HA, auto-promote the next healthy candidate
+- ✅ Multi-origin upstream blocks in generated nginx config (weighted, max_fails, fail_timeout)
+- ✅ Real-time updates via Laravel Reverb (WebSocket broadcasting of edge / origin / proxy / SSL / DNS events)
+- ✅ PowerDNS HTTP API integration (zone + record CRUD)
+- ✅ Let's Encrypt via Certbot with renewal scheduler
+- ✅ Full automated test suite (unit + feature, SQLite in-memory, factories for every model)
+- ✅ Frontend views for SSL, DNS, and Failover Groups
+
+### Coming (Phase 3+)
 - 🚧 Golang Edge Agent (will live in `docker/edge-agent/`)
-- 🚧 PowerDNS integration (zone & record management)
-- 🚧 Certbot automation with renewal scheduler
-- 🚧 Real-time monitoring dashboard (WebSocket push)
 - 🚧 Traffic log aggregation & analytics
 - 🚧 Multi-tenant billing
-- 🚧 Failover groups & global load balancing
 - 🚧 WAF / rate limiting / IP allow/block lists
+- 🚧 Single Sign-On (SSO) and 2FA
 
 ---
 
@@ -161,19 +167,27 @@ Each edge server runs a small Go binary that:
 4. Reports telemetry to `POST /api/agent/telemetry`
 5. Ships access logs to `POST /api/agent/traffic`
 
-> The Go agent source will be added in **Phase 4** of the roadmap.
+> The Go agent source will be added in **Phase 3** of the roadmap. The
+> nginx config generator, edge sync service, telemetry ingestion and health
+> check pipeline are already in place and covered by automated tests.
 
-To install an agent manually today (stub):
+## 🔁 Real-time updates (Reverb)
 
-```bash
-# On the edge server (Ubuntu/Debian):
-apt install -y nginx certbot
-echo "deb [trusted=yes] https://apt.xerex.dev /" > /etc/apt/sources.list.d/xerex.list
-apt update && apt install -y xerex-agent
-systemctl enable --now xerex-agent
-# Register the agent token (printed by the panel UI)
-xerex-agent register --server https://panel.example.com --token <TOKEN>
-```
+Server-pushed events flow over Laravel Reverb (Pusher protocol):
+
+- `edge.status` — edge server came online / went offline / degraded
+- `origin.health` — health check result changed (latency, status)
+- `origin.failover` — a failover group promoted / demoted a member
+- `proxyrule.updated` — created / updated / deleted / toggled
+- `ssl.updated` — issued / renewed / revoked
+- `dns.updated` — zone / record changed
+
+The SPA subscribes via the `useRealtimeStore` Pinia store
+(`resources/js/stores/realtime.js`) which uses `laravel-echo` +
+`pusher-js`. The connection details are injected into the page through
+Reverb meta tags rendered by `resources/views/app.blade.php` and parsed in
+`resources/js/bootstrap.js` — no rebuild required when Reverb host/port
+change.
 
 ---
 
@@ -211,11 +225,11 @@ npm run dev
 | Phase | Status | Description |
 |------:|:------:|:------------|
 | 1 | ✅ | Laravel setup, migrations, auth, admin dashboard |
-| 2 | ⏳ | Edge server & origin management, telemetry |
-| 3 | ⏳ | Proxy rule engine, nginx config generator, sync jobs |
-| 4 | ⏳ | Go-based Edge Agent |
-| 5 | ⏳ | PowerDNS & Let's Encrypt automation |
-| 6 | ⏳ | Real-time monitoring dashboard & alerts |
+| 2 | ✅ | Edge / origin management, health checks, failover groups, Reverb realtime, PowerDNS, Certbot, full test suite |
+| 3 | ⏳ | Go-based Edge Agent |
+| 4 | ⏳ | Traffic log aggregation & analytics |
+| 5 | ⏳ | Multi-tenant billing & quotas |
+| 6 | ⏳ | WAF, rate limiting, IP allow/block lists |
 
 ---
 
@@ -230,14 +244,16 @@ xerex-panel/
 │   │   └── ...
 │   ├── Jobs/                  # Queue jobs (edge sync, SSL renewal)
 │   ├── Models/                # Eloquent models
-│   ├── Observers/             # Model observers
+│   ├── Observers/             # Model observers (event dispatch)
 │   ├── Providers/             # Service providers
 │   ├── Repositories/          # Repository pattern (contracts + Eloquent impls)
-│   └── Services/              # Business logic (NginxConfigGenerator, EdgeSync, ...)
+│   ├── Services/              # Business logic (NginxConfigGenerator, EdgeSync, HealthCheck, FailoverGroup, ...)
+│   └── Events/                # Broadcast events
 ├── bootstrap/
-├── config/                    # Including xerex.php
+├── config/                    # Including xerex.php, broadcasting.php
 ├── database/
-│   ├── migrations/            # 11 migrations
+│   ├── migrations/            # 12 migrations
+│   ├── factories/             # 8 model factories
 │   └── seeders/
 ├── docker/
 │   ├── app/                   # PHP-FPM Dockerfile
@@ -248,16 +264,17 @@ xerex-panel/
 │   │   ├── components/
 │   │   ├── layouts/
 │   │   ├── router/
-│   │   ├── stores/            # Pinia
-│   │   └── views/
+│   │   ├── stores/            # Pinia (auth, realtime)
+│   │   └── views/             # 8 views incl. SSL / DNS / Failover
 │   └── views/                 # Blade (app shell)
 ├── routes/
-│   ├── api.php
-│   ├── web.php
-│   └── console.php
+│   ├── api.php                # REST + agent routes
+│   ├── channels.php           # Broadcast auth
+│   ├── console.php
+│   └── web.php
 ├── storage/
-├── tests/
-└── docker-compose.yml
+├── tests/                     # Unit + feature tests
+└── docker-compose.yml         # app, postgres, redis, nginx, powerdns, horizon, reverb, vite
 ```
 
 ---

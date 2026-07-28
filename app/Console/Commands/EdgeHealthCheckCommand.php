@@ -2,36 +2,58 @@
 
 namespace App\Console\Commands;
 
-use App\Models\EdgeServer;
-use App\Models\OriginServer;
+use App\Services\HealthCheckService;
 use Illuminate\Console\Command;
 
+/**
+ * Periodic scheduled health check.
+ *
+ * Runs every minute (see routes/console.php) and delegates the actual probing
+ * logic to HealthCheckService. The command is intentionally thin so the same
+ * logic can also be triggered from the API (HealthCheckController@runNow)
+ * and from tests.
+ */
 class EdgeHealthCheckCommand extends Command
 {
-    protected $signature = 'xerex:health:check';
-    protected $description = 'Mark edge servers as offline if they have not checked in for 2 minutes';
+    protected $signature = 'xerex:health:check
+        {--target=all : Probe scope: all|origins|edges}
+        {--sync : Run synchronously without queueing}';
 
-    public function handle(): int
+    protected $description = 'Run scheduled health checks against active origins and edges';
+
+    public function handle(HealthCheckService $service): int
     {
-        $staleThreshold = now()->subMinutes(2);
+        $this->info('Starting scheduled health checks...');
+        $start = microtime(true);
 
-        $count = EdgeServer::where('status', EdgeServer::STATUS_ONLINE)
-            ->where(function ($q) use ($staleThreshold) {
-                $q->whereNull('last_seen_at')->orWhere('last_seen_at', '<', $staleThreshold);
-            })
-            ->update(['status' => EdgeServer::STATUS_OFFLINE]);
+        $stats = $service->runScheduledChecks();
 
-        $this->info("Marked {$count} edge servers as offline");
+        $elapsedMs = (int) ((microtime(true) - $start) * 1000);
 
-        // Disable unhealthy origins (3+ consecutive failures)
-        $origins = OriginServer::where('health_status', OriginServer::HEALTH_DOWN)
-            ->where('consecutive_failures', '>=', config('xerex.health.fail_threshold', 3))
-            ->where('is_active', true)
-            ->get();
+        $this->table(
+            ['Metric', 'Count'],
+            [
+                ['Origins probed',     $stats['origins']],
+                ['Edges probed',       $stats['edges']],
+                ['Failed checks',      $stats['failed']],
+                ['Origins disabled',   $stats['disabled']],
+                ['Origins re-enabled', $stats['reenabled']],
+            ]
+        );
 
-        foreach ($origins as $origin) {
-            $origin->update(['is_active' => false]);
-            $this->warn("Disabled origin {$origin->name} after repeated health failures");
+        $this->info(sprintf(
+            'Health check run completed in %dms (%d origins, %d edges).',
+            $elapsedMs,
+            $stats['origins'],
+            $stats['edges']
+        ));
+
+        if ($stats['disabled'] > 0 || $stats['reenabled'] > 0) {
+            $this->warn(sprintf(
+                'Failover activity: %d origin(s) disabled, %d re-enabled.',
+                $stats['disabled'],
+                $stats['reenabled']
+            ));
         }
 
         return self::SUCCESS;

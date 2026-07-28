@@ -34,9 +34,18 @@ return [
     ],
 
     'health' => [
-        'interval'      => (int) env('XEREX_HEALTH_CHECK_INTERVAL', 30),
-        'timeout'       => (int) env('XEREX_HEALTH_CHECK_TIMEOUT', 5),
-        'fail_threshold'=> (int) env('XEREX_HEALTH_CHECK_FAIL_THRESHOLD', 3),
+        // Periodic check interval per origin (seconds)
+        'interval'         => (int) env('XEREX_HEALTH_CHECK_INTERVAL', 30),
+        // Per-probe timeout (seconds)
+        'timeout'          => (int) env('XEREX_HEALTH_CHECK_TIMEOUT', 5),
+        // Disable origin after N consecutive failures
+        'fail_threshold'   => (int) env('XEREX_HEALTH_CHECK_FAIL_THRESHOLD', 3),
+        // Re-enable origin after N consecutive successes
+        'success_threshold'=> (int) env('XEREX_HEALTH_CHECK_SUCCESS_THRESHOLD', 2),
+        // Allow automatic failover (disable unhealthy origins)
+        'auto_failover'    => (bool) env('XEREX_HEALTH_AUTO_FAILOVER', true),
+        // Allow automatic recovery (re-enable healthy origins)
+        'auto_recover'     => (bool) env('XEREX_HEALTH_AUTO_RECOVER', true),
     ],
 
     'audit' => [

@@ -4,9 +4,12 @@ use App\Http\Controllers\Api\AgentController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\DomainController;
+use App\Http\Controllers\Api\DnsController;
 use App\Http\Controllers\Api\EdgeServerController;
+use App\Http\Controllers\Api\HealthCheckController;
 use App\Http\Controllers\Api\OriginServerController;
 use App\Http\Controllers\Api\ProxyRuleController;
+use App\Http\Controllers\Api\SslController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -61,6 +64,42 @@ Route::middleware('auth:sanctum')->group(function () {
     // Proxy rules
     Route::apiResource('proxy-rules', ProxyRuleController::class);
     Route::post('proxy-rules/{proxyRule}/toggle', [ProxyRuleController::class, 'toggle']);
+
+    // DNS zones & records (PowerDNS integration)
+    Route::prefix('dns')->group(function () {
+        Route::get('zones',                        [DnsController::class, 'indexZones']);
+        Route::post('zones',                       [DnsController::class, 'createZone']);
+        Route::get('zones/{zone}',                 [DnsController::class, 'showZone']);
+        Route::delete('zones/{zone}',              [DnsController::class, 'destroyZone']);
+        Route::get('zones/{zone}/records',         [DnsController::class, 'listRecords']);
+        Route::post('zones/{zone}/records',        [DnsController::class, 'addRecord']);
+        Route::delete('records/{record}',          [DnsController::class, 'deleteRecord']);
+        Route::post('zones/{zone}/sync-domain',    [DnsController::class, 'syncFromDomain']);
+        Route::get('verify',                       [DnsController::class, 'verify']);
+    });
+
+    // SSL certificates (Certbot / Let's Encrypt)
+    Route::prefix('ssl')->group(function () {
+        Route::get('certificates',                 [SslController::class, 'index']);
+        Route::post('certificates',                [SslController::class, 'issue']);
+        Route::get('certificates/{certificate}',   [SslController::class, 'show']);
+        Route::post('certificates/{certificate}/renew',  [SslController::class, 'renew']);
+        Route::delete('certificates/{certificate}',[SslController::class, 'revoke']);
+        Route::get('expiring',                     [SslController::class, 'expiring']);
+    });
+
+    // Health checks & auto-failover
+    Route::prefix('health-checks')->group(function () {
+        Route::get('/',                            [HealthCheckController::class, 'index']);
+        Route::get('stats',                        [HealthCheckController::class, 'stats']);
+        Route::post('run',                         [HealthCheckController::class, 'runNow']);
+
+        Route::get('origins/{originServer}',                  [HealthCheckController::class, 'originHistory']);
+        Route::post('origins/{originServer}/probe',          [HealthCheckController::class, 'probeOrigin']);
+        Route::post('origins/{originServer}/reactivate',     [HealthCheckController::class, 'reactivateOrigin']);
+
+        Route::post('edges/{edgeServer}/probe',              [HealthCheckController::class, 'probeEdge']);
+    });
 });
 
 /*

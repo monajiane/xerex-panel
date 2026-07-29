@@ -3,9 +3,9 @@
 namespace App\Models;
 
 use Illuminate\Contracts\Auth\MustVerifyEmail;
-use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -16,7 +16,7 @@ use Spatie\Permission\Traits\HasRoles;
 
 /**
  * User model - the principal identity in the system.
- * 
+ *
  * @property int    $id
  * @property string $uuid
  * @property string $name
@@ -94,6 +94,30 @@ class User extends Authenticatable
     public function origins(): HasMany
     {
         return $this->hasMany(OriginServer::class);
+    }
+
+    /**
+     * The user's most recent subscription. "Active" here just means
+     * "the row we care about" - status checks live in QuotaService.
+     */
+    public function subscription(): HasOne
+    {
+        return $this->hasOne(Subscription::class)->latestOfMany('id');
+    }
+
+    public function subscriptions(): HasMany
+    {
+        return $this->hasMany(Subscription::class);
+    }
+
+    public function invoices(): HasMany
+    {
+        return $this->hasMany(Invoice::class);
+    }
+
+    public function usages(): HasMany
+    {
+        return $this->hasMany(Usage::class);
     }
 
     /** API access tokens (Sanctum) */

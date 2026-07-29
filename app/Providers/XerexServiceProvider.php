@@ -2,12 +2,16 @@
 
 namespace App\Providers;
 
+use App\Services\BillingService;
 use App\Services\CertbotService;
 use App\Services\Dns\PowerDNSService;
 use App\Services\FailoverGroupService;
 use App\Services\HealthCheckService;
 use App\Services\NginxConfigGenerator;
+use App\Services\QuotaService;
 use App\Services\TrafficAggregator;
+use App\Services\UsageMeter;
+use Illuminate\Routing\Router;
 use Illuminate\Support\ServiceProvider;
 
 class XerexServiceProvider extends ServiceProvider
@@ -23,6 +27,9 @@ class XerexServiceProvider extends ServiceProvider
         CertbotService::class        => CertbotService::class,
         FailoverGroupService::class  => FailoverGroupService::class,
         TrafficAggregator::class     => TrafficAggregator::class,
+        QuotaService::class          => QuotaService::class,
+        BillingService::class        => BillingService::class,
+        UsageMeter::class            => UsageMeter::class,
     ];
 
     public function register(): void
@@ -37,6 +44,10 @@ class XerexServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        //
+        // Register the EnforceQuota route middleware under the alias
+        // "enforce.quota" so route definitions can use it.
+        /** @var Router $router */
+        $router = $this->app['router'];
+        $router->aliasMiddleware('enforce.quota', \App\Http\Middleware\EnforceQuota::class);
     }
 }

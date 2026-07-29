@@ -21,6 +21,7 @@ const routes = [
             { path: 'dns',            name: 'dns-zones',       component: () => import('../views/DnsZonesView.vue') },
             { path: 'ssl',            name: 'ssl',             component: () => import('../views/SslCertificatesView.vue') },
             { path: 'analytics',      name: 'analytics',       component: () => import('../views/AnalyticsView.vue') },
+            { path: 'billing',        name: 'billing',         component: () => import('../views/BillingView.vue') },
         ],
     },
     { path: '/:pathMatch(.*)*', redirect: '/dashboard' },

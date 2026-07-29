@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\AgentController;
 use App\Http\Controllers\Api\AnalyticsController;
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\BillingController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\DnsController;
 use App\Http\Controllers\Api\DomainController;
@@ -30,6 +31,15 @@ use Illuminate\Support\Facades\Route;
 Route::prefix('auth')->group(function () {
     Route::post('login',    [AuthController::class, 'login']);
     Route::post('register', [AuthController::class, 'register']);
+});
+
+/*
+|--------------------------------------------------------------------------
+| Public billing (plan catalog is browsable without auth)
+|--------------------------------------------------------------------------
+*/
+Route::prefix('billing')->group(function () {
+    Route::get('plans', [BillingController::class, 'plans']);
 });
 
 /*
@@ -114,6 +124,21 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('top-domains', [AnalyticsController::class, 'topDomains']);
         Route::get('top-rules',   [AnalyticsController::class, 'topRules']);
         Route::post('rebuild',    [AnalyticsController::class, 'rebuild']);
+    });
+
+    // Billing (current user)
+    Route::prefix('billing')->group(function () {
+        Route::get('plans',                       [BillingController::class, 'plans']);
+        Route::get('subscription',                [BillingController::class, 'showSubscription']);
+        Route::post('subscription',               [BillingController::class, 'subscribe']);
+        Route::post('subscription/cancel',        [BillingController::class, 'cancelSubscription']);
+        Route::post('subscription/resume',        [BillingController::class, 'resumeSubscription']);
+        Route::get('quotas',                      [BillingController::class, 'quotas']);
+        Route::get('invoices',                    [BillingController::class, 'invoices']);
+        Route::get('invoices/{invoice}',          [BillingController::class, 'showInvoice']);
+        Route::post('invoices/{invoice}/pay',     [BillingController::class, 'payInvoice']);
+        // Admin-only: re-seed the default plan set
+        Route::post('plans/seed',                 [BillingController::class, 'seedPlans']);
     });
 });
 

@@ -10,9 +10,12 @@ use App\Http\Controllers\Api\DomainController;
 use App\Http\Controllers\Api\EdgeServerController;
 use App\Http\Controllers\Api\FailoverGroupController;
 use App\Http\Controllers\Api\HealthCheckController;
+use App\Http\Controllers\Api\IpListController;
 use App\Http\Controllers\Api\OriginServerController;
 use App\Http\Controllers\Api\ProxyRuleController;
+use App\Http\Controllers\Api\RateLimitController;
 use App\Http\Controllers\Api\SslController;
+use App\Http\Controllers\Api\WafRuleController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -139,6 +142,40 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('invoices/{invoice}/pay',     [BillingController::class, 'payInvoice']);
         // Admin-only: re-seed the default plan set
         Route::post('plans/seed',                 [BillingController::class, 'seedPlans']);
+    });
+
+    // Security: WAF, IP lists, rate limits
+    Route::prefix('security')->group(function () {
+        // WAF rules
+        Route::get('waf/rules',                       [WafRuleController::class, 'index']);
+        Route::post('waf/rules',                      [WafRuleController::class, 'store']);
+        Route::get('waf/rules/{wafRule}',             [WafRuleController::class, 'show']);
+        Route::put('waf/rules/{wafRule}',             [WafRuleController::class, 'update']);
+        Route::patch('waf/rules/{wafRule}',           [WafRuleController::class, 'update']);
+        Route::delete('waf/rules/{wafRule}',          [WafRuleController::class, 'destroy']);
+        Route::post('waf/rules/{wafRule}/toggle',     [WafRuleController::class, 'toggle']);
+        Route::post('waf/test',                       [WafRuleController::class, 'test']);
+
+        // IP allow / block lists
+        Route::get('ip-lists',                        [IpListController::class, 'index']);
+        Route::post('ip-lists',                       [IpListController::class, 'store']);
+        Route::get('ip-lists/{ipList}',               [IpListController::class, 'show']);
+        Route::put('ip-lists/{ipList}',               [IpListController::class, 'update']);
+        Route::patch('ip-lists/{ipList}',             [IpListController::class, 'update']);
+        Route::delete('ip-lists/{ipList}',            [IpListController::class, 'destroy']);
+        Route::post('ip-lists/bulk',                  [IpListController::class, 'bulkImport']);
+        Route::post('ip-lists/check',                 [IpListController::class, 'check']);
+
+        // Rate-limit policies
+        Route::get('rate-limits',                     [RateLimitController::class, 'index']);
+        Route::post('rate-limits',                    [RateLimitController::class, 'store']);
+        Route::get('rate-limits/{rateLimit}',         [RateLimitController::class, 'show']);
+        Route::put('rate-limits/{rateLimit}',         [RateLimitController::class, 'update']);
+        Route::patch('rate-limits/{rateLimit}',       [RateLimitController::class, 'update']);
+        Route::delete('rate-limits/{rateLimit}',      [RateLimitController::class, 'destroy']);
+        Route::post('rate-limits/{rateLimit}/toggle', [RateLimitController::class, 'toggle']);
+        Route::get('rate-limits/{rateLimit}/inspect', [RateLimitController::class, 'inspect']);
+        Route::post('rate-limits/{rateLimit}/reset',  [RateLimitController::class, 'reset']);
     });
 });
 

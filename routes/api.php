@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AgentController;
+use App\Http\Controllers\Api\AnalyticsController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\DnsController;
@@ -104,6 +105,15 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('{group}/promote',   [FailoverGroupController::class, 'promote']);
         Route::post('{group}/reorder',   [FailoverGroupController::class, 'reorder']);
         Route::delete('{group}',         [FailoverGroupController::class, 'destroy']);
+    });
+
+    // Traffic analytics (reads from pre-aggregated traffic_rollups)
+    Route::prefix('analytics')->group(function () {
+        Route::get('series',      [AnalyticsController::class, 'series']);
+        Route::get('summary',     [AnalyticsController::class, 'summary']);
+        Route::get('top-domains', [AnalyticsController::class, 'topDomains']);
+        Route::get('top-rules',   [AnalyticsController::class, 'topRules']);
+        Route::post('rebuild',    [AnalyticsController::class, 'rebuild']);
     });
 });
 

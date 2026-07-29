@@ -7,6 +7,7 @@ use App\Services\Dns\PowerDNSService;
 use App\Services\FailoverGroupService;
 use App\Services\HealthCheckService;
 use App\Services\NginxConfigGenerator;
+use App\Services\TrafficAggregator;
 use Illuminate\Support\ServiceProvider;
 
 class XerexServiceProvider extends ServiceProvider
@@ -21,6 +22,7 @@ class XerexServiceProvider extends ServiceProvider
         HealthCheckService::class    => HealthCheckService::class,
         CertbotService::class        => CertbotService::class,
         FailoverGroupService::class  => FailoverGroupService::class,
+        TrafficAggregator::class     => TrafficAggregator::class,
     ];
 
     public function register(): void

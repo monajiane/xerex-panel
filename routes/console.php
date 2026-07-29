@@ -12,8 +12,16 @@ Artisan::command('inspire', function () {
 |--------------------------------------------------------------------------
 | Scheduled tasks
 |--------------------------------------------------------------------------
+|   * xerex:ssl:renew         — daily @ 03:30  (Certbot renewals)
+|   * xerex:health:check      — every minute    (HTTP probes)
+|   * xerex:traffic:rollup    — every 5 minutes (TrafficAggregator)
+|   * xerex:traffic:prune     — daily @ 04:00   (delete old raw logs)
+|   * xerex:edges:reap-stale  — hourly          (mark offline edges)
 */
+
 Schedule::command('xerex:ssl:renew')->dailyAt('03:30');
 Schedule::command('xerex:health:check')->everyMinute();
-Schedule::command('xerex:traffic:purge')->daily();
+Schedule::command('xerex:traffic:rollup')->everyFiveMinutes()->withoutOverlapping();
+Schedule::command('xerex:traffic:rollup --full-day')->dailyAt('00:05');
+Schedule::command('xerex:traffic:prune')->dailyAt('04:00');
 Schedule::command('xerex:edges:reap-stale')->hourly();

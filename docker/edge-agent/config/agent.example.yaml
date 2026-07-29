@@ -1,0 +1,51 @@
+# Xerex Edge Agent — sample configuration
+#
+# Copy to /etc/xerex/agent.yaml and edit.
+# All values can also be overridden via environment variables prefixed
+# with XEREX_, e.g. XEREX_PANEL_URL, XEREX_AGENT_TOKEN, XEREX_LOG_LEVEL,
+# or via CLI flags, e.g. --panel-url https://...
+
+# ---- Identity ----------------------------------------------------------------
+# The bearer token printed by the panel when you created this edge.
+agent_token: "xerx_REPLACE_ME_WITH_TOKEN_FROM_PANEL"
+
+# Display name (defaults to hostname).
+edge_name: "edge-fra-01"
+
+# Optional hostname override; used in telemetry only.
+hostname: ""
+
+# ---- Panel endpoints ---------------------------------------------------------
+panel_url: "https://panel.example.com"
+ws_url:    "wss://panel.example.com:8080"
+
+# ---- Filesystem paths --------------------------------------------------------
+nginx_conf_dir:    "/etc/nginx/conf.d"
+access_log_path:   "/var/log/nginx/access.log"
+
+# nginx binaries (override if you don't have them on $PATH)
+nginx_test_bin:    "nginx"
+nginx_reload_bin:  "nginx"
+nginx_user:        "www-data"
+nginx_worker_processes: "auto"
+
+# ---- Intervals (Go duration format: 30s, 1m, 5m...) -------------------------
+config_pull_interval: "30s"
+telemetry_interval:   "30s"
+log_batch_interval:   "5s"
+log_batch_size:       200
+
+# ---- Logging -----------------------------------------------------------------
+log_level:   "info"   # debug | info | warn | error
+log_format:  "json"   # json | console
+time_format: "2006-01-02T15:04:05Z07:00"
+
+# ---- Capabilities advertised to the panel -----------------------------------
+capabilities:
+  - http
+  - https
+  - websocket
+  - grpc
+  - tcp
+  - http2
+  - http3

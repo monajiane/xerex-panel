@@ -1,0 +1,21 @@
+# Build artifacts
+/dist/
+/build/
+*.exe
+*.test
+*.out
+
+# Local config / secrets
+agent.yaml
+agent.local.yaml
+*.local.yaml
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Go workspace files
+go.work
+go.work.sum

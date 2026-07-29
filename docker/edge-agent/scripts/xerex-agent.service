@@ -1,0 +1,35 @@
+[Unit]
+Description=Xerex Edge Agent — Self-hosted CDN edge daemon
+Documentation=https://github.com/monajiane/xerex-panel
+After=network-online.target nginx.service
+Wants=network-online.target
+Requires=nginx.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStart=/usr/local/bin/xerex-agent --config /etc/xerex/agent.yaml
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+
+# Hardening
+NoNewPrivileges=false
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/log/nginx /etc/nginx /var/lib/xerex
+CapabilityBoundingSet=
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+# Watchdog: if the process doesn't ping sd_notify in 60s, restart
+WatchdogSec=60
+NotifyAccess=all
+
+# Environment overrides
+Environment=XEREX_LOG_FORMAT=console
+Environment=XEREX_LOG_LEVEL=info
+
+[Install]
+WantedBy=multi-user.target

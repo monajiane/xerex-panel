@@ -1,0 +1,63 @@
+# ============================================================================
+# Xerex Panel — systemd service
+#
+# Drops into /etc/systemd/system/xerex-panel.service, then:
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now xerex-panel
+#   sudo systemctl status xerex-panel
+#
+# The panel ships with its own install script (`./install.sh`) that copies
+# this file into place automatically.
+# ============================================================================
+
+[Unit]
+Description=Xerex Panel (Laravel + Vue SPA) — edge proxy / CDN control plane
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=xerex
+Group=xerex
+WorkingDirectory=/var/www/xerex-panel
+
+# --- HTTP server (php artisan serve). Swap to php-fpm + nginx in production. ---
+ExecStart=/usr/bin/php -d variables_order=EGPCS artisan serve --host=127.0.0.1 --port=8000
+
+# --- Process management ---
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+KillMode=mixed
+KillSignal=SIGTERM
+
+# --- Environment ---
+Environment=APP_ENV=production
+Environment=APP_DEBUG=false
+Environment=LOG_CHANNEL=stack
+# Load everything else from .env. systemd does NOT read .env directly, so the
+# installer writes the key bits into EnvironmentFile= below.
+EnvironmentFile=-/var/www/xerex-panel/.env
+
+# --- File-system permissions ---
+# Protect the service account from being abused via the web runtime.
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+NoNewPrivileges=true
+
+# --- Resource limits ---
+LimitNOFILE=65536
+MemoryMax=512M
+TasksMax=2048
+
+# --- Logging ---
+StandardOutput=append:/var/log/xerex-panel/panel.log
+StandardError=append:/var/log/xerex-panel/panel.error.log
+
+[Install]
+WantedBy=multi-user.target

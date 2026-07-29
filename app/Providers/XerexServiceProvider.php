@@ -14,6 +14,7 @@ use App\Services\Security\RateLimiter;
 use App\Services\Security\WafEngine;
 use App\Services\TrafficAggregator;
 use App\Services\UsageMeter;
+use App\Support\Installer;
 use Illuminate\Routing\Router;
 use Illuminate\Support\ServiceProvider;
 
@@ -36,6 +37,7 @@ class XerexServiceProvider extends ServiceProvider
         WafEngine::class             => WafEngine::class,
         IpListService::class         => IpListService::class,
         RateLimiter::class           => RateLimiter::class,
+        Installer::class             => Installer::class,
     ];
 
     public function register(): void

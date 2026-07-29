@@ -1,0 +1,25 @@
+# ============================================================================
+# Xerex Panel — scheduler oneshot + timer
+#
+# Drop both files into /etc/systemd/system/, then:
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now xerex-scheduler.timer
+#   sudo systemctl list-timers xerex-scheduler.timer
+#
+# The timer fires `php artisan schedule:run` every minute, which is the
+# Laravel-recommended way to drive scheduled tasks under systemd.
+# ============================================================================
+
+[Unit]
+Description=Xerex Panel — Laravel scheduler (oneshot)
+After=network.target
+
+[Service]
+Type=oneshot
+User=xerex
+Group=xerex
+WorkingDirectory=/var/www/xerex-panel
+ExecStart=/usr/bin/php artisan schedule:run
+# Surface failures to the journal so the on-call rotation can grep them.
+StandardOutput=journal
+StandardError=journal

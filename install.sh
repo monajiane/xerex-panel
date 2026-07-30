@@ -517,9 +517,28 @@ if [[ $SKIP_CLONE -eq 0 ]]; then
   # owned by root, which makes composer fail with "Permission denied"
   # when it tries to write composer.lock as the xerex user.
   chown -R "${PANEL_USER}:${PANEL_USER}" "${PANEL_HOME}"
+
+  # Make sure bootstrap/cache and storage exist and are writable by the
+  # panel user. composer post-autoload-dump runs `php artisan package:discover`
+  # which needs bootstrap/cache to write packages.php + services.php.
+  mkdir -p "${PANEL_HOME}/bootstrap/cache" "${PANEL_HOME}/storage/framework/cache/data" \
+           "${PANEL_HOME}/storage/framework/sessions" "${PANEL_HOME}/storage/framework/views" \
+           "${PANEL_HOME}/storage/logs"
+  chown -R "${PANEL_USER}:${PANEL_USER}" "${PANEL_HOME}/bootstrap/cache" "${PANEL_HOME}/storage"
+  find "${PANEL_HOME}/bootstrap/cache" "${PANEL_HOME}/storage" -type d -exec chmod 775 {} \; 2>/dev/null || true
+  find "${PANEL_HOME}/bootstrap/cache" "${PANEL_HOME}/storage" -type f -exec chmod 664 {} \; 2>/dev/null || true
+
   mark_done "repo:cloned"
 else
   log "Skipping clone (--skip-clone)."
+  # Even if clone is skipped, we still need bootstrap/cache and storage
+  # to be writable so composer and php artisan can do their work.
+  mkdir -p "${PANEL_HOME}/bootstrap/cache" "${PANEL_HOME}/storage/framework/cache/data" \
+           "${PANEL_HOME}/storage/framework/sessions" "${PANEL_HOME}/storage/framework/views" \
+           "${PANEL_HOME}/storage/logs"
+  chown -R "${PANEL_USER}:${PANEL_USER}" "${PANEL_HOME}/bootstrap/cache" "${PANEL_HOME}/storage" 2>/dev/null || true
+  find "${PANEL_HOME}/bootstrap/cache" "${PANEL_HOME}/storage" -type d -exec chmod 775 {} \; 2>/dev/null || true
+  find "${PANEL_HOME}/bootstrap/cache" "${PANEL_HOME}/storage" -type f -exec chmod 664 {} \; 2>/dev/null || true
 fi
 
 # ----- 4. Composer + .env --------------------------------------------------

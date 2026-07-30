@@ -55,6 +55,6 @@ return Application::configure(basePath: dirname(__DIR__))
         App\Providers\RouteServiceProvider::class,
         App\Providers\EventServiceProvider::class,
         App\Providers\XerexServiceProvider::class,
-        App\Providers\RepositoryServiceProvider::class,
+        App\Repositories\RepositoryServiceProvider::class,
     ])
     ->create();

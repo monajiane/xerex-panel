@@ -243,6 +243,37 @@ setup_php_native() {
   network_retry bash -c "$PKG update -y"
 }
 
+# ----- Sanitize apt sources before PHP install -----------------------------
+# Why: a previous failed run may have left /etc/apt/sources.list.d/php.list
+#      pointing at Sury's Fastly URL, which is unreachable from the user's
+#      datacenter. If we don't remove it, every `apt install php8.3-*`
+#      will time out trying Sury first and never fall through to universe.
+#
+#      This function probes the configured Sury host; if it's unreachable,
+#      it removes the source list and the GPG key.
+sanitize_apt_sources() {
+  local src=/etc/apt/sources.list.d/php.list
+  [[ -f "$src" ]] || return 0
+
+  local host
+  host=$(awk '{print $2}' "$src" 2>/dev/null | head -1)
+  if [[ -z "$host" ]]; then
+    warn "Sury source list is malformed; removing it."
+    rm -f "$src" /etc/apt/trusted.gpg.d/php.gpg
+    return 0
+  fi
+
+  log "Probing existing Sury source: ${host}"
+  if curl -fsSL --max-time 8 -o /dev/null "${host}/dists/${VERSION_CODENAME:-$(lsb_release -sc 2>/dev/null || echo noble)}/Release" 2>/dev/null; then
+    log "Sury source ${host} is reachable; keeping it."
+    return 0
+  fi
+
+  warn "Sury source ${host} is unreachable; removing broken source list."
+  rm -f "$src" /etc/apt/trusted.gpg.d/php.gpg
+  network_retry bash -c "$PKG update -y" || true
+}
+
 # ----- Idempotent step runner ----------------------------------------------
 # run_step <name> <command...>
 #   * If <name> is in the state file, skip.
@@ -412,10 +443,22 @@ if [[ $SKIP_DEPS -eq 0 ]]; then
     esac
   fi
 
+  # Sanitize: if a previous failed run left a broken Sury source list,
+  # remove it before trying to install PHP. This is the difference between
+  # "apt install php8.3-cli" timing out forever and falling through to
+  # universe.
+  run_step "apt:sanitize" sanitize_apt_sources
+
   run_step "apt:php" bash -c "$PKG install -y --no-install-recommends \
       php${PHP_VERSION}-cli php${PHP_VERSION}-fpm \
       php${PHP_VERSION}-{mbstring,xml,bcmath,curl,zip,intl,gd,pgsql,redis,opcache}" \
-    || fail "PHP ${PHP_VERSION} install failed. Run \`apt install -y php${PHP_VERSION}-cli\` to see the underlying error."
+    || {
+      warn "PHP ${PHP_VERSION} install failed. Last 30 lines of apt output:"
+      $PKG install -y --no-install-recommends \
+        php${PHP_VERSION}-cli php${PHP_VERSION}-fpm \
+        php${PHP_VERSION}-{mbstring,xml,bcmath,curl,zip,intl,gd,pgsql,redis,opcache} 2>&1 | tail -30 >&2
+      fail "PHP ${PHP_VERSION} install failed. See lines above for the real error."
+    }
 
   log "PHP installed: $(php${PHP_VERSION} -r 'echo PHP_VERSION;' 2>/dev/null || echo unknown)"
 else

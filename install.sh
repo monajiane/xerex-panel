@@ -603,10 +603,15 @@ run_step "env:write" bash -c "
   ENV_FILE=${PANEL_HOME}/.env
   set_env() {
     local key=\"\$1\" val=\"\$2\"
+    # Always wrap the value in double quotes so values that contain
+    # spaces (e.g. APP_NAME=\"Xerex Panel\") don't break Laravel's
+    # strict dotenv parser. The PHP dotenv reader is happy with
+    # double-quoted values, and quote-wrapping is harmless for
+    # values that don't need it (e.g. APP_DEBUG=\"false\").
     if grep -q \"^\${key}=\" \"\$ENV_FILE\";then
-      sed -i \"s|^\${key}=.*|\${key}=\${val}|\" \"\$ENV_FILE\"
+      sed -i \"s|^\${key}=.*|\${key}=\\\"${val}\\\"|\" \"\$ENV_FILE\"
     else
-      echo \"\${key}=\${val}\" >> \"\$ENV_FILE\"
+      echo \"\${key}=\\\"${val}\\\"\" >> \"\$ENV_FILE\"
     fi
   }
   set_env APP_NAME        'Xerex Panel'

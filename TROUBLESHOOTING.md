@@ -292,6 +292,55 @@ inline via `Application::configure()`. If `bootstrap/app.php`'s
 
 ---
 
+## 10. `.env` parse error: "Encountered unexpected whitespace at [Xerex Panel]"
+
+**Symptom:**
+```
+The environment file is invalid!
+Failed to parse dotenv file. Encountered unexpected whitespace at [Xerex Panel].
+```
+And immediately after, the systemd unit enters a restart loop:
+```
+xerex-panel.service: Main PID exited, status=209/STDOUT
+```
+
+**Cause:** `install.sh`'s `set_env()` helper wrote values to `.env`
+without quoting them, e.g. `APP_NAME=Xerex Panel`. Laravel's strict
+dotenv reader splits on whitespace, so it took `Xerex` as the value
+and choked on `Panel`. The php-fpm/Laravel boot then threw, the
+service exited, and the 502 from nginx was a downstream effect.
+
+**Fix (without re-running the whole installer):**
+```bash
+cd /var/www/xerex-panel
+# 1. Quote APP_NAME (and any other value that has a space)
+sudo sed -i 's|^APP_NAME=.*|APP_NAME="Xerex Panel"|' .env
+# 2. Re-generate APP_KEY just in case
+sudo -u xerex php artisan key:generate --force
+# 3. Clear cached config so the new env takes effect
+sudo -u xerex php artisan config:clear
+sudo -u xerex php artisan cache:clear
+# 4. Restart the service
+sudo systemctl restart xerex-panel
+sudo systemctl status xerex-panel --no-pager
+```
+
+**Why the service was restarting:** the systemd unit runs
+`php artisan serve`. When Laravel can't parse `.env` at boot, the
+process exits with status 209 (PHP terminated with output on stdout),
+systemd restarts it, the same thing happens, repeat. nginx sees
+nothing on `127.0.0.1:8000` and returns 502.
+
+**Why this is fixed in the installer:** `set_env()` now wraps every
+value in double quotes (`APP_NAME="Xerex Panel"`), which the PHP
+dotenv reader accepts regardless of spaces, and is harmless for
+values that don't need quoting (`APP_DEBUG="false"`,
+`DB_HOST="127.0.0.1"`, etc.).
+
+(Commit for the install.sh fix follows in the version history below.)
+
+---
+
 ## 🩺 Health check after install
 
 There's a `verify-install.sh` at the repo root that runs 12+ checks
@@ -324,3 +373,4 @@ you're done.
 | `c29d4e6` | PSR-4 + bootstrap/cache + storage permissions |
 | `b3e335e` | Pre-create `.env` before composer runs |
 | `363c91f` | Remove Laravel 11+ providers that no longer exist |
+| `<this>` | `set_env` quotes values (fixes `Encountered unexpected whitespace` for `APP_NAME`) |

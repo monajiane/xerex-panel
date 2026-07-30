@@ -543,12 +543,46 @@ fi
 
 # ----- 4. Composer + .env --------------------------------------------------
 hdr "Step 4/8 - Composer & .env"
+
+# Pre-create .env from .env.example BEFORE composer runs.
+# Why: composer's post-autoload-dump script runs `php artisan package:discover`,
+# which boots Laravel. Laravel's bootstrap() needs .env to be present (it
+# reads APP_KEY, APP_ENV, etc). If .env is missing, package:discover
+# fails with "No application encryption key has been specified" or
+# similar, which then bubbles up as:
+#   Script @php artisan package:discover handling the post-autoload-dump
+#   event returned with error code 1
+# The actual env values get overwritten later in the env:write step.
+if [[ ! -f "${PANEL_HOME}/.env" ]] && [[ -f "${PANEL_HOME}/.env.example" ]]; then
+  cp "${PANEL_HOME}/.env.example" "${PANEL_HOME}/.env"
+  chown "${PANEL_USER}:${PANEL_USER}" "${PANEL_HOME}/.env"
+  chmod 640 "${PANEL_HOME}/.env"
+  log "  ↪ pre-created .env from .env.example (will be overwritten later)"
+fi
+
+# Also generate a placeholder APP_KEY so package:discover has something
+# to work with. The real key is generated later in env:write.
+if [[ -f "${PANEL_HOME}/.env" ]] && ! grep -qE '^APP_KEY=base64:[A-Za-z0-9+/=]+' "${PANEL_HOME}/.env"; then
+  PLACEHOLDER_KEY="base64:$(openssl rand -base64 32 2>/dev/null || echo cGxhY2Vob2xkZXI=)"
+  if grep -q '^APP_KEY=' "${PANEL_HOME}/.env"; then
+    sed -i "s|^APP_KEY=.*|APP_KEY=${PLACEHOLDER_KEY}|" "${PANEL_HOME}/.env"
+  else
+    echo "APP_KEY=${PLACEHOLDER_KEY}" >> "${PANEL_HOME}/.env"
+  fi
+  chown "${PANEL_USER}:${PANEL_USER}" "${PANEL_HOME}/.env"
+  log "  ↪ generated placeholder APP_KEY for package:discover"
+fi
+
 run_step "composer:install" bash -c "
   if ! command -v composer >/dev/null; then
     curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
   fi
-  sudo -u ${PANEL_USER} -H bash -lc 'cd ${PANEL_HOME} && composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist'
-"
+  sudo -u ${PANEL_USER} -H bash -lc 'cd ${PANEL_HOME} && composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist 2>&1'
+" || {
+  warn "composer install failed; re-running package:discover manually to capture the real error:"
+  sudo -u "${PANEL_USER}" -H bash -lc "cd ${PANEL_HOME} && php artisan package:discover -v 2>&1" | tail -30 >&2 || true
+  fail "composer install failed. See lines above for the actual error."
+}
 
 if [[ -n "${DOMAIN}" ]]; then
   APP_URL="https://${DOMAIN}"

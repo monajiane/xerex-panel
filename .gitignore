@@ -26,3 +26,10 @@ yarn-error.log
 Thumbs.db
 *.log
 docker/storage/
+
+# Local scratch / debug helpers (move to ./trash instead of deleting)
+/trash/
+*.bak
+*.swp
+*.tmp
+trash_check_ws.php

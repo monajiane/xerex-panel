@@ -7,6 +7,14 @@ scenarios, from a single dev box to a production VPS.
 این سند نحوه نصب پنل زِرِکس را در سه حالت مختلف توضیح می‌دهد؛
 از یک سیستم محلی گرفته تا سرور تولیدی.
 
+> 🩺 **If the install fails partway through, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md).**
+> It documents every error we've hit on real production servers and the
+> exact one-line fix for each.
+>
+> 🩺 **اگه نصب در حین کار خطا داد، [TROUBLESHOOTING.md](TROUBLESHOOTING.md) رو ببین.**
+> تمام خطاهایی که روی سرورهای واقعی بهشون برخوردیم و فیکس یک‌خطی
+> هر کدوم اونجا هست.
+
 ---
 
 ## 🇮🇷 فارسی (خلاصه سریع)

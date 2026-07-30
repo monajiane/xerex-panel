@@ -50,9 +50,12 @@ return Application::configure(basePath: dirname(__DIR__))
         });
     })
     ->withProviders([
+        // NOTE: Laravel 11+ does NOT auto-generate AuthServiceProvider
+        // or RouteServiceProvider — auth + routing are now configured
+        // inline via the Application::configure() builder above.
+        // Registering them here would crash with "Class not found" at
+        // boot time.
         App\Providers\AppServiceProvider::class,
-        App\Providers\AuthServiceProvider::class,
-        App\Providers\RouteServiceProvider::class,
         App\Providers\EventServiceProvider::class,
         App\Providers\XerexServiceProvider::class,
         App\Repositories\RepositoryServiceProvider::class,

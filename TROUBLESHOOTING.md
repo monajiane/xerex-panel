@@ -361,6 +361,136 @@ you're done.
 
 ---
 
+## 11. `DB_PASSWORD` desync between `.env` and the PostgreSQL user
+
+**Symptom:**
+```
+SQLSTATE[08006] [7] connection to server at "127.0.0.1", port 5432 failed:
+FATAL:  password authentication failed for user "xerex"
+```
+…and `php artisan migrate` / `cache:clear` keeps failing even though
+`xerex:install` "ran" earlier.
+
+**Cause:** `install.sh` initialises its DB password as
+```bash
+DB_PASS="${XEREX_DB_PASSWORD:-$(openssl rand -hex 16)}"
+```
+i.e. **a fresh random value on every run**. The first time the script
+runs, that password is used to:
+1. `CREATE USER xerex WITH PASSWORD '<P1>'` (step 2 — `db:user`)
+2. write `DB_PASSWORD=<P1>` into `.env` (step 4 — `env:write`)
+
+But the `env:write` step's inner `php artisan config:clear` will fail
+*as long as `.env` is broken* (the `APP_NAME` unquoted-string issue
+from §10), and a failed step is **not** marked done. So on every
+re-run, a new random `<P2>`, `<P3>`, … is generated and written into
+`.env`, leaving the PostgreSQL user stuck on the original `<P1>` and
+breaking auth.
+
+**Fix (without re-installing the database):**
+```bash
+# 1. Read the current DB_PASSWORD from .env
+DB_PASS=$(sudo grep '^DB_PASSWORD=' /var/www/xerex-panel/.env | cut -d= -f2- | tr -d '"')
+# 2. Update the PG user's password to match
+sudo -u postgres psql -c "ALTER USER xerex WITH PASSWORD '${DB_PASS}';"
+# 3. Verify auth
+PGPASSWORD="${DB_PASS}" psql -h 127.0.0.1 -U xerex -d xerex_panel -c "SELECT 1;"
+```
+
+**Why this is fixed in the installer:** `install.sh` now reads
+`DB_PASSWORD` from the existing `.env` (if `XEREX_DB_PASSWORD` is not
+exported) before generating a random one, so the PG user and `.env`
+stay in sync across re-runs. You can still override explicitly by
+setting `XEREX_DB_PASSWORD=...` in the environment.
+
+---
+
+## 12. Spatie permission migration can't clear the cache
+
+**Symptom:**
+```
+2026_01_01_000002_create_permission_tables ... FAIL
+SQLSTATE[42P01]: Undefined table: 7 ERROR: relation "cache" does not exist
+LINE 1: delete from "cache" where "key" in (...)
+```
+
+**Cause:** When you set `CACHE_STORE=database` (which the installer
+does by default), Spatie's permission package tries to flush the
+permission cache during its own migration. The flush calls
+`DB::table('cache')->whereIn('key', ...)->delete()` — but the `cache`
+table doesn't exist yet on a fresh install (it is normally created by
+`create_cache_table`, which the panel never shipped).
+
+This is only an issue for *fresh* installs. Once the `cache` table
+exists, the next migrate run succeeds.
+
+**Fix (without re-installing):** The new migrations shipped in
+this release (`2025_12_31_235960_create_cache_table.php` and friends)
+add the missing `cache`, `cache_locks`, `sessions`, `jobs`,
+`failed_jobs` tables before any of the panel's own migrations run, so
+the Spatie flush always succeeds. After pulling the latest code:
+```bash
+cd /var/www/xerex-panel
+sudo git pull origin main
+sudo -u xerex php artisan migrate --force
+```
+
+---
+
+## 13. Missing `cache` / `sessions` / `jobs` migrations
+
+**Symptom:** Any `php artisan cache:clear` / `route:clear` / queue
+operation fails with:
+```
+SQLSTATE[42P01]: Undefined table: 7 ERROR: relation "cache" does not exist
+```
+
+**Cause:** The panel installs with `CACHE_STORE=database`,
+`SESSION_DRIVER=database`, `QUEUE_CONNECTION=database`, but the
+migrations for those tables were never committed. They are standard
+Laravel scaffolding that `php artisan make:cache-table` etc. would
+generate, but those commands were never run.
+
+**Fix:** Pull the latest code and re-run migrate. Four new migrations
+shipped in this release with timestamps `2025_12_31_235957` …
+`235960`, so they run *before* any of the panel's own migrations and
+create the missing tables in order:
+- `jobs` (used by the `database` queue driver)
+- `failed_jobs` (used by `queue:failed`)
+- `sessions` (used by `SESSION_DRIVER=database`)
+- `cache` + `cache_locks` (used by `CACHE_STORE=database`)
+
+---
+
+## 14. Wrong `Blueprint` import in 5 migrations
+
+**Symptom:** Every migration from `2026_01_01_000014` onward fails:
+```
+In 2026_01_01_000014_create_plans_table.php line 14:
+  Illuminate\Database\Migrations\Migration@anonymous():
+  Argument #1 ($table) must be of type
+  Illuminate\Database\Eloquent\Schema\Blueprint,
+  Illuminate\Database\Schema\Blueprint given
+```
+
+**Cause:** The migrations imported
+`Illuminate\Database\Eloquent\Schema\Blueprint` — a class that does
+**not** exist in Laravel. The real one is
+`Illuminate\Database\Schema\Blueprint`. PHP's type checker refuses to
+accept the real `Schema\Blueprint` instance as a substitute, so the
+migration throws at runtime.
+
+**Fix (in code):** Replaced the wrong import in all 5 affected files:
+- `2026_01_01_000014_create_plans_table.php`
+- `2026_01_01_000015_create_plan_limits_table.php`
+- `2026_01_01_000016_create_subscriptions_table.php`
+- `2026_01_01_000017_create_usages_table.php`
+- `2026_01_01_000018_create_invoices_table.php`
+
+After pulling, re-run `php artisan migrate --force` to apply them.
+
+---
+
 ## 📜 Version history of install-time fixes
 
 | Commit  | What it fixed |
@@ -373,4 +503,7 @@ you're done.
 | `c29d4e6` | PSR-4 + bootstrap/cache + storage permissions |
 | `b3e335e` | Pre-create `.env` before composer runs |
 | `363c91f` | Remove Laravel 11+ providers that no longer exist |
-| `<this>` | `set_env` quotes values (fixes `Encountered unexpected whitespace` for `APP_NAME`) |
+| `b567646` | `set_env` quotes values (fixes `Encountered unexpected whitespace` for `APP_NAME`) |
+| `<this>` | `install.sh` reuses `DB_PASSWORD` from `.env` (fixes PG auth desync) |
+| `<this>` | 5 migrations: `Eloquent\Schema\Blueprint` → `Schema\Blueprint` |
+| `<this>` | 4 new migrations: `cache` / `cache_locks` / `sessions` / `jobs` / `failed_jobs` |

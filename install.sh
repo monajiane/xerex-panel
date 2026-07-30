@@ -48,6 +48,31 @@ PANEL_PORT="8000"
 PHP_VERSION="8.3"
 DB_NAME="xerex_panel"
 DB_USER="xerex"
+
+# Re-use the existing DB password from .env if it is already there,
+# so that re-running the installer (e.g. after a failed step) does not
+# silently overwrite .env DB_PASSWORD with a new random value and
+# desync it from the PostgreSQL user that was created on a previous
+# run. Users can still override by exporting XEREX_DB_PASSWORD
+# explicitly in the environment.
+if [[ -z "${XEREX_DB_PASSWORD:-}" ]] && [[ -f "${PANEL_HOME}/.env" ]]; then
+  _xerex_existing_db_pass=""
+  while IFS= read -r _xerex_line; do
+    # strip optional leading whitespace, then KEY=
+    _xerex_existing_db_pass="${_xerex_line#${_xerex_line%%[![:space:]]*}}"
+    _xerex_existing_db_pass="${_xerex_existing_db_pass#DB_PASSWORD=}"
+    if [[ -n "${_xerex_existing_db_pass}" ]]; then break; fi
+  done < <(grep -E "^[[:space:]]*DB_PASSWORD=" "${PANEL_HOME}/.env" 2>/dev/null || true)
+  # Strip surrounding double or single quotes if any.
+  _xerex_existing_db_pass="${_xerex_existing_db_pass%\"}"
+  _xerex_existing_db_pass="${_xerex_existing_db_pass#\"}"
+  _xerex_existing_db_pass="${_xerex_existing_db_pass%'}"
+  _xerex_existing_db_pass="${_xerex_existing_db_pass#'}"
+  if [[ -n "${_xerex_existing_db_pass}" ]]; then
+    export XEREX_DB_PASSWORD="${_xerex_existing_db_pass}"
+  fi
+  unset _xerex_existing_db_pass _xerex_line
+fi
 DB_PASS="${XEREX_DB_PASSWORD:-$(openssl rand -hex 16)}"
 DOMAIN="${PANEL_DOMAIN:-}"
 ADMIN_EMAIL="${PANEL_ADMIN_EMAIL:-}"

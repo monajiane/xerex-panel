@@ -38,6 +38,44 @@ cd /var/www/xerex-panel
 sudo -u xerex php artisan xerex:install --reset
 ```
 
+### اگر به Sury.org (Fastly) دسترسی ندارید
+
+سرورهایی که در بعضی دیتاسنترها هستند به `packages.sury.org` (که Fastly CDN است)
+دسترسی ندارند. اسکریپت به‌طور خودکار این کار را می‌کند:
+
+- **Ubuntu 24.04+** → از `universe` خود اوبونتو استفاده می‌کند (اصلاً به Sury نمی‌رود).
+- **Ubuntu 22.04 / Debian 12** → چند آینه مختلف را امتحان می‌کند:
+  1. `packages.sury.org` (پیش‌فرض، Fastly)
+  2. `mirror.iranserver.com/sury-php` (آینه ایرانی)
+  3. `ftp.acc.umu.se/mirror/sury-php` (آکادمیک سوئد)
+  4. `mirror.its.dal.ca/sury-php` (آکادمیک کانادا)
+
+اگر همه آینه‌ها fail شد، اسکریپت خودش می‌رود سراغ PHP پیش‌فرض OS.
+
+اگر می‌خواهید دستی آینه را عوض کنید:
+
+```bash
+# همیشه Sury (حتی روی Ubuntu 24.04)
+XEREX_FORCE_SURY=1 sudo ./install.sh --domain …
+
+# اصلاً از Sury استفاده نکن
+XEREX_SKIP_SURY=1 sudo ./install.sh --domain …
+
+# آینه سفارشی
+XEREX_SURY_MIRRORS="https://my-mirror/sury-php https://packages.sury.org/php" \
+  sudo ./install.sh --domain …
+
+# تعداد تلاش مجدد شبکه (پیش‌فرض ۴)
+XEREX_NET_RETRY=6 sudo ./install.sh --domain …
+```
+
+اگر نصب قبلی گیر کرده، اول این را اجرا کنید:
+
+```bash
+sudo ./install-recover.sh
+sudo ./install.sh --resume
+```
+
 ---
 
 ## 🇬🇧 English — full guide
@@ -148,6 +186,69 @@ Admin password: <random>
 
 Re-run with `./install.sh --help` to see all flags. The script is idempotent
 except for `--reset`, so it's safe to run on a partially-set-up server.
+
+#### 4.1 Network resilience & mirror selection
+
+The script picks the PHP source **automatically** based on the OS:
+
+| OS                        | PHP source                                  |
+|---------------------------|---------------------------------------------|
+| Ubuntu 24.04+ (noble/24.10) | Native `universe` repo (no third-party)   |
+| Ubuntu 22.04 (jammy)      | Sury, with mirror fallback                  |
+| Debian 12 (bookworm)      | Sury, with mirror fallback                  |
+| anything else             | Sury, with mirror fallback                  |
+
+For Sury, the default mirror list (tried in order) is:
+
+1. `https://packages.sury.org/php` (official, served by Fastly)
+2. `https://mirror.iranserver.com/sury-php` (Iranian mirror)
+3. `https://ftp.acc.umu.se/mirror/sury-php` (Swedish academic)
+4. `https://mirror.its.dal.ca/sury-php` (Canadian academic)
+
+You can override any of this with environment variables:
+
+```bash
+# Always use Sury (even on Ubuntu 24.04)
+curl -fsSL https://.../install.sh | XEREX_FORCE_SURY=1 sudo bash -s -- --domain …
+
+# Never use Sury — install whatever the OS already has
+curl -fsSL https://.../install.sh | XEREX_SKIP_SURY=1 sudo bash -s -- --domain …
+
+# Use a custom list of Sury mirrors
+XEREX_SURY_MIRRORS="https://my-mirror.example/sury-php https://packages.sury.org/php" \
+  sudo ./install.sh --domain …
+
+# Change the number of network retries (default 4)
+XEREX_NET_RETRY=6 sudo ./install.sh --domain …
+```
+
+The script also retries every network call with exponential backoff
+(2s, 4s, 8s, 16s) before giving up — so a single transient timeout won't
+kill the install.
+
+#### 4.2 Recovering from a failed install
+
+If the script dies halfway (SSH disconnect, OOM, network outage), just
+re-run it. It uses `flock` for process safety and a state file at
+`/var/lib/xerex-install/state` for step-level idempotency, so it picks
+up where it left off.
+
+For **really** stuck installs (a zombie apt/dpkg holding the lock), use
+the recovery script shipped in the repo:
+
+```bash
+# On a fresh clone:
+curl -fsSL https://raw.githubusercontent.com/YOUR-ORG/xerex-panel/main/install-recover.sh | sudo bash
+
+# Or if you already have the repo:
+sudo /var/www/xerex-panel/install-recover.sh
+
+# Just check state:
+sudo ./install.sh --status
+
+# Start over from scratch:
+sudo ./install.sh --reset
+```
 
 ### 5. Method D — Windows / local development
 

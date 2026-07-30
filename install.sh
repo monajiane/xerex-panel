@@ -113,6 +113,136 @@ clean_apt_locks() {
   dpkg --configure -a 2>/dev/null || true
 }
 
+# ----- Network retry with exponential backoff ------------------------------
+# Why: the user's datacenter occasionally times out to packages.sury.org
+#      (Fastly CDN IPs are blocked in their region). A single transient
+#      failure shouldn't kill the whole install, so we retry with
+#      exponential backoff (2s, 4s, 8s, 16s).
+# Override the max attempts with XEREX_NET_RETRY=N (default 4).
+network_retry() {
+  local max_attempts="${XEREX_NET_RETRY:-4}"
+  local delay=2
+  local attempt=1
+  local rc=0
+  while [[ $attempt -le $max_attempts ]]; do
+    if "$@"; then
+      if [[ $attempt -gt 1 ]]; then
+        log "  ↪ network_retry: succeeded on attempt ${attempt}"
+      fi
+      return 0
+    fi
+    rc=$?
+    if [[ $attempt -lt $max_attempts ]]; then
+      warn "  ↪ network_retry: attempt ${attempt}/${max_attempts} failed (rc=${rc}); retrying in ${delay}s..."
+      sleep $delay
+      delay=$((delay * 2))
+    fi
+    attempt=$((attempt + 1))
+  done
+  warn "  ↪ network_retry: all ${max_attempts} attempts failed (last rc=${rc})"
+  return $rc
+}
+
+# ----- PHP source selection ------------------------------------------------
+# Decides where to install PHP from:
+#   - Ubuntu 24.04 / 24.10: native universe (no extra repo, no Fastly dep)
+#   - Ubuntu 22.04 / Debian 12: Sury (with mirror fallback)
+# User overrides:
+#   XEREX_FORCE_SURY=1   always use Sury
+#   XEREX_SKIP_SURY=1    never use Sury, always try native
+detect_php_source() {
+  local os_id="$1" os_version="$2" codename="$3"
+
+  # User overrides win
+  if [[ "${XEREX_FORCE_SURY:-0}" = "1" ]]; then
+    echo "sury"; return 0
+  fi
+  if [[ "${XEREX_SKIP_SURY:-0}" = "1" ]]; then
+    echo "native"; return 0
+  fi
+
+  # Ubuntu 24.04+ ships PHP 8.3 in universe — no third-party repo needed.
+  if [[ "$os_id" = "ubuntu" ]]; then
+    case "$os_version" in
+      24.04|24.10|25.04|25.10) echo "native"; return 0 ;;
+    esac
+  fi
+
+  # Everything else: Sury
+  echo "sury"
+}
+
+# Default Sury mirrors, in priority order. The first one that responds
+# to a quick HEAD probe is used. Users can override by exporting
+# XEREX_SURY_MIRRORS="url1 url2 ...".
+SURY_MIRRORS_DEFAULT=(
+  "https://packages.sury.org/php"
+  "https://mirror.iranserver.com/sury-php"
+  "https://ftp.acc.umu.se/mirror/sury-php"
+  "https://mirror.its.dal.ca/sury-php"
+)
+
+# ----- Sury setup with mirror fallback -------------------------------------
+# Tries each mirror in turn. Each mirror is tested with a 10s HEAD probe;
+# the first one that returns 200 is used. If every mirror fails, returns
+# non-zero so the caller can fall back to native.
+setup_php_sury() {
+  local codename="$1"
+  local mirrors=()
+  if [[ -n "${XEREX_SURY_MIRRORS:-}" ]]; then
+    # shellcheck disable=SC2206
+    mirrors=( ${XEREX_SURY_MIRRORS} )
+  else
+    mirrors=( "${SURY_MIRRORS_DEFAULT[@]}" )
+  fi
+
+  # Already configured? Just refresh.
+  if grep -q "sury" /etc/apt/sources.list.d/*.list 2>/dev/null; then
+    log "Sury repo already configured; refreshing package list..."
+    network_retry bash -c "$PKG update -y"
+    return 0
+  fi
+
+  # Probe each mirror in order.
+  local mirror
+  for mirror in "${mirrors[@]}"; do
+    log "Probing Sury mirror: ${mirror}"
+    if curl -fsSL --max-time 10 -o /dev/null "${mirror}/dists/${codename}/Release" 2>/dev/null; then
+      log "Mirror ${mirror} is reachable; configuring it..."
+      if network_retry curl -fsSL -o /etc/apt/trusted.gpg.d/php.gpg "${mirror}/apt.gpg" \
+         && echo "deb ${mirror}/ ${codename} main" > /etc/apt/sources.list.d/php.list \
+         && network_retry bash -c "$PKG update -y"; then
+        log "Sury repo configured from ${mirror}"
+        return 0
+      fi
+      warn "Mirror ${mirror} configured but apt update failed; trying next..."
+      rm -f /etc/apt/sources.list.d/php.list /etc/apt/trusted.gpg.d/php.gpg
+    else
+      warn "Mirror ${mirror} unreachable; trying next..."
+    fi
+  done
+
+  return 1
+}
+
+# ----- Native PHP setup (Ubuntu 24.04+) ------------------------------------
+# Ubuntu 24.04's universe repo has PHP 8.3. We just need to make sure
+# universe is enabled, then apt install.
+setup_php_native() {
+  log "Using native OS PHP ${PHP_VERSION} (no third-party repo)."
+
+  # Make sure universe is enabled (Ubuntu). This is a no-op if already on.
+  if [[ "$ID" = "ubuntu" ]]; then
+    if ! grep -qE "^deb .* ${VERSION_CODENAME}[[:space:]]+universe" /etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null; then
+      log "Enabling universe component..."
+      add-apt-repository -y universe 2>/dev/null || \
+        echo "deb http://archive.ubuntu.com/ubuntu ${VERSION_CODENAME} universe" > /etc/apt/sources.list.d/universe.list
+    fi
+  fi
+
+  network_retry bash -c "$PKG update -y"
+}
+
 # ----- Idempotent step runner ----------------------------------------------
 # run_step <name> <command...>
 #   * If <name> is in the state file, skip.
@@ -256,19 +386,36 @@ if [[ $SKIP_DEPS -eq 0 ]]; then
       postgresql postgresql-contrib"
 
   # Add Sury PHP 8.3 repo only if not already configured.
+  # We pick the PHP source based on the OS version:
+  #   - Ubuntu 24.04+ : native universe (no Sury)
+  #   - otherwise    : Sury, but with mirror fallback if Fastly is blocked
   if ! command -v "php${PHP_VERSION}" >/dev/null 2>&1; then
-    run_step "apt:php:repo" bash -c "
-      if ! grep -q packages.sury.org /etc/apt/sources.list.d/*.list 2>/dev/null; then
-        wget -qO /etc/apt/trusted.gpg.d/php.gpg https://packages.sury.org/php/apt.gpg
-        echo 'deb https://packages.sury.org/php/ $(lsb_release -sc) main' > /etc/apt/sources.list.d/php.list
-      fi
-    "
-    run_step "apt:php:update" bash -c "$PKG update -y"
+    PHP_SOURCE=$(detect_php_source "${ID}" "${VERSION_ID:-}" "${VERSION_CODENAME:-$(lsb_release -sc 2>/dev/null || echo '')}")
+    log "PHP source strategy: ${PHP_SOURCE}"
+
+    case "$PHP_SOURCE" in
+      native)
+        run_step "apt:php:native" setup_php_native \
+          || fail "Native PHP setup failed. Check apt sources."
+        ;;
+      sury)
+        run_step "apt:php:repo" setup_php_sury "${VERSION_CODENAME:-$(lsb_release -sc)}" \
+          || {
+            warn "All Sury mirrors failed. Falling back to native OS PHP..."
+            run_step "apt:php:native" setup_php_native \
+              || fail "Both Sury and native PHP setup failed. Check your network."
+          }
+        ;;
+      *)
+        fail "Unknown PHP source: ${PHP_SOURCE}"
+        ;;
+    esac
   fi
 
   run_step "apt:php" bash -c "$PKG install -y --no-install-recommends \
       php${PHP_VERSION}-cli php${PHP_VERSION}-fpm \
-      php${PHP_VERSION}-{mbstring,xml,bcmath,curl,zip,intl,gd,pgsql,redis,opcache}"
+      php${PHP_VERSION}-{mbstring,xml,bcmath,curl,zip,intl,gd,pgsql,redis,opcache}" \
+    || fail "PHP ${PHP_VERSION} install failed. Run \`apt install -y php${PHP_VERSION}-cli\` to see the underlying error."
 
   log "PHP installed: $(php${PHP_VERSION} -r 'echo PHP_VERSION;' 2>/dev/null || echo unknown)"
 else

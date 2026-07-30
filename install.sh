@@ -495,6 +495,12 @@ if [[ $SKIP_CLONE -eq 0 ]]; then
     useradd -r -m -d "/var/lib/${PANEL_USER}" -s /bin/bash "${PANEL_USER}" || true
   fi
 
+  # Mark the panel home as a safe git directory for both root and the
+  # panel user. This silences the "dubious ownership" error when the
+  # directory was originally created by a different user.
+  git config --global --add safe.directory "${PANEL_HOME}" 2>/dev/null || true
+  sudo -u "${PANEL_USER}" -H bash -lc "git config --global --add safe.directory '${PANEL_HOME}'" 2>/dev/null || true
+
   if [[ -d "${PANEL_HOME}/.git" ]]; then
     log "${PANEL_HOME} already cloned; pulling latest."
     sudo -u "${PANEL_USER}" git -C "${PANEL_HOME}" pull --ff-only 2>/dev/null || warn "git pull failed (offline?) — using existing checkout"
@@ -504,8 +510,13 @@ if [[ $SKIP_CLONE -eq 0 ]]; then
       # Fallback: try without --branch in case the default branch is master.
       git clone --depth 1 "${PANEL_REPO}" "${PANEL_HOME}"
     fi
-    chown -R "${PANEL_USER}:${PANEL_USER}" "${PANEL_HOME}"
   fi
+
+  # Always chown the panel home to the panel user. This is idempotent
+  # and fixes the case where a previous failed install left the dir
+  # owned by root, which makes composer fail with "Permission denied"
+  # when it tries to write composer.lock as the xerex user.
+  chown -R "${PANEL_USER}:${PANEL_USER}" "${PANEL_HOME}"
   mark_done "repo:cloned"
 else
   log "Skipping clone (--skip-clone)."

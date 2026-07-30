@@ -109,7 +109,6 @@ class InstallCommand extends Command
 
         // Reload .env so the migration step sees the new DB config.
         Artisan::call('config:clear');
-        $this->call('migrate', ['--force' => true]);
         $appKey = $installer->ensureAppKey();
         $this->info('APP_KEY: ' . substr($appKey, 0, 16) . '...');
 
@@ -118,13 +117,30 @@ class InstallCommand extends Command
             $this->warn('Skipping migrations (--no-migrate).');
         } else {
             $this->section('Step 4 / 6 - Migrations');
+
+            // The cache/sessions/jobs tables do not exist yet on a fresh
+            // install. If .env still says CACHE_STORE=database, every
+            // artisan command that touches the cache (including
+            // config:clear) will explode. Temporarily force the
+            // file/sync backends so the migration step can finish, then
+            // switch back to the database backends in step 5.
+            $installer->useFileBackedStorageDuringMigrate();
+            $this->line('  <fg=gray>temporarily switched CACHE/SESSION/QUEUE to file/sync for the migration step</>');
+
             $result = $installer->runMigrations();
             if (! $result['ok']) {
                 $this->error('Migrations failed:');
                 $this->line($result['detail']);
+                $this->line('Hint: re-run with `--reset` to clear the install lock and try again.');
                 return self::FAILURE;
             }
             $this->info('Migrations applied.');
+
+            // Now that the cache/sessions/jobs tables exist, restore
+            // the production-grade database backends.
+            $installer->applySaneDefaults('production');
+            Artisan::call('config:clear');
+            $this->line('  <fg=gray>restored CACHE/SESSION/QUEUE to database backend</>');
         }
 
         // ---------- 5. Seeders ----------

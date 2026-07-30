@@ -43,19 +43,16 @@ return new class extends Migration {
             $table->timestamp('created_at')->nullable();
         });
 
-        Schema::create('sessions', function (Blueprint $table) {
-            $table->string('id')->primary();
-            $table->foreignId('user_id')->nullable()->index();
-            $table->string('ip_address', 45)->nullable();
-            $table->text('user_agent')->nullable();
-            $table->longText('payload');
-            $table->integer('last_activity')->index();
-        });
+        // NOTE: the `sessions` table is owned by the dedicated
+        // 2025_12_31_235959_create_sessions_table migration that ships
+        // right before this one in timestamp order. It used to live
+        // here, but on a fresh install the dedicated migration would
+        // then fail with "relation already exists". Keep this file
+        // authoritative for `users` + `password_reset_tokens` only.
     }
 
     public function down(): void
     {
-        Schema::dropIfExists('sessions');
         Schema::dropIfExists('password_reset_tokens');
         Schema::dropIfExists('users');
     }

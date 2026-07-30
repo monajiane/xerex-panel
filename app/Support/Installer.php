@@ -192,11 +192,107 @@ class Installer
      */
     public function runMigrations(): array
     {
+        // Self-heal before we touch anything: an earlier crashed install
+        // may have left the `migrations` table in a bad state (failed
+        // rows, or a half-applied migration recorded as run while the
+        // actual table is missing). The repair step clears those out so
+        // the upcoming `migrate` can finish cleanly.
+        $repair = $this->repairMigrations();
+        if (! $repair['ok']) {
+            return ['ok' => false, 'detail' => 'pre-migrate repair failed: ' . $repair['detail']];
+        }
+
         try {
             Artisan::call('migrate', ['--force' => true]);
             return ['ok' => true, 'detail' => Artisan::output()];
         } catch (\Throwable $e) {
             return ['ok' => false, 'detail' => $e->getMessage()];
+        }
+    }
+
+    /**
+     * Self-heal a broken `migrations` table.
+     *
+     * Two things can go wrong on a re-run of the installer:
+     *
+     *   1. A migration failed halfway, Laravel wrote a `batch` row for it
+     *      without ever finishing the table. `migrate` then refuses to
+     *      run because the row says it's already applied. We delete any
+     *      row whose migration file is missing or whose target table is
+     *      missing on the live database.
+     *
+     *   2. The legacy users migration (000001) used to also create the
+     *      `sessions` table. If a previous install was on that old code,
+     *      the table is now present but recorded under the users
+     *      migration. The dedicated sessions migration would then fail
+     *      with "relation already exists". We detect that exact case and
+     *      drop the orphan `sessions` table so the dedicated migration
+     *      can re-create it cleanly.
+     *
+     * Returns ['ok' => bool, 'detail' => string, 'actions' => string[]].
+     * The actions list is mostly for logging so the operator can see
+     * exactly what the repair step changed.
+     */
+    public function repairMigrations(): array
+    {
+        $actions = [];
+
+        try {
+            // The `migrations` table itself may not exist yet on a
+            // completely fresh DB; that's fine, nothing to repair.
+            if (! Schema::hasTable('migrations')) {
+                return ['ok' => true, 'detail' => 'migrations table absent, nothing to repair', 'actions' => $actions];
+            }
+
+            $applied = DB::table('migrations')->get(['id', 'migration'])->keyBy('migration');
+
+            // --- (1) drop rows for migration files that no longer exist
+            $diskMigrations = [];
+            foreach (glob(database_path('migrations/*.php')) ?: [] as $file) {
+                $diskMigrations[] = pathinfo($file, PATHINFO_FILENAME);
+            }
+
+            foreach ($applied as $row) {
+                if (! in_array($row->migration, $diskMigrations, true)) {
+                    DB::table('migrations')->where('id', $row->id)->delete();
+                    $actions[] = "removed stale migrations row for missing file: {$row->migration}";
+                }
+            }
+
+            // --- (2) drop rows whose target table is missing on the live DB
+            // We map a small whitelist of migration -> table names. The
+            // list is intentionally tiny: only the framework-level
+            // tables that we ship. Domain tables are owned by later
+            // migrations and are not safe to guess about here.
+            $expected = [
+                '2025_12_31_235957_create_jobs_table'         => 'jobs',
+                '2025_12_31_235958_create_failed_jobs_table'  => 'failed_jobs',
+                '2025_12_31_235959_create_sessions_table'     => 'sessions',
+                '2025_12_31_235960_create_cache_table'        => 'cache',
+                '2026_01_01_000001_create_users_table'        => 'users',
+            ];
+
+            foreach ($expected as $migration => $table) {
+                if ($applied->has($migration) && ! Schema::hasTable($table)) {
+                    DB::table('migrations')->where('migration', $migration)->delete();
+                    $actions[] = "removed migrations row for missing table: {$table} ({$migration})";
+                }
+            }
+
+            // --- (3) special case: orphan `sessions` table from the old
+            // users migration. If the table is present but the dedicated
+            // sessions migration has not been recorded as run, the
+            // dedicated migration will fail. Drop the table; the
+            // dedicated migration (which is now also idempotent via
+            // hasTable guards) will recreate it.
+            if (Schema::hasTable('sessions') && ! $applied->has('2025_12_31_235959_create_sessions_table')) {
+                Schema::drop('sessions');
+                $actions[] = 'dropped orphan sessions table (legacy users migration)';
+            }
+
+            return ['ok' => true, 'detail' => implode('; ', $actions) ?: 'no repair needed', 'actions' => $actions];
+        } catch (\Throwable $e) {
+            return ['ok' => false, 'detail' => $e->getMessage(), 'actions' => $actions];
         }
     }
 
@@ -317,6 +413,7 @@ class Installer
      *   - APP_DEBUG=false  (in production env)
      *   - QUEUE_CONNECTION=database  (no Redis dependency at first boot)
      *   - SESSION_DRIVER=database    (same reason)
+     *   - CACHE_STORE=database       (same reason)
      */
     public function applySaneDefaults(string $appEnv): void
     {
@@ -330,6 +427,26 @@ class Installer
             $updates['APP_DEBUG'] = 'false';
         }
         $this->writeEnvKeys($updates);
+    }
+
+    /**
+     * Force the storage drivers that require a database table to fall back
+     * to their file-based equivalents. Used right before the migration
+     * step on a fresh install so that artisan commands like config:clear
+     * and cache:clear do not crash with "relation does not exist" while
+     * the cache/sessions tables are still missing.
+     *
+     * The caller is expected to call applySaneDefaults() after the
+     * migrations have run, to put the storage drivers back onto the
+     * database backend.
+     */
+    public function useFileBackedStorageDuringMigrate(): void
+    {
+        $this->writeEnvKeys([
+            'CACHE_STORE'      => 'file',
+            'SESSION_DRIVER'   => 'file',
+            'QUEUE_CONNECTION' => 'sync',
+        ]);
     }
 
     // ============================================================
